@@ -1,0 +1,7 @@
+flask
+requests
+PyPDF2
+Pillow
+pytesseract
+reportlab
+python-dotenv
