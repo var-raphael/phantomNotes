@@ -1,37 +1,42 @@
 import os
-import json
 import io
+import json
 import uuid
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Thread
-import time
+
 from flask import Flask, request, render_template, jsonify, make_response
-import PyPDF2
-from PIL import Image, ImageDraw, ImageFont
-import easyocr
-import requests
 from dotenv import load_dotenv
+
+import requests
+import PyPDF2
+import easyocr
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.units import inch
 
+# --------------------------------------------------
+# INIT
+# --------------------------------------------------
 load_dotenv()
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB
 
-# Create temp directory for exports
 EXPORT_DIR = Path("exports")
 EXPORT_DIR.mkdir(exist_ok=True)
 
-# Get Groq API key
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Initialize EasyOCR reader (lazy loading)
-ocr_reader = None
-
+# --------------------------------------------------
+# USER TYPES
+# --------------------------------------------------
 USER_TYPES = {
     "student": "You are summarizing for a student. Provide chapter-by-chapter summaries with key definitions, main concepts, and important points for studying.",
     "novel_reader": "You are summarizing for a novel reader. Focus on plot summary, character analysis, themes, and narrative structure.",
@@ -45,17 +50,27 @@ USER_TYPES = {
     "detailed": "Provide an in-depth, detailed analysis that preserves nuance and context."
 }
 
+# --------------------------------------------------
+# OCR (PRE-WARMED ON STARTUP)
+# --------------------------------------------------
+ocr_reader = None
 
 def get_ocr_reader():
     """Lazy load EasyOCR reader"""
     global ocr_reader
     if ocr_reader is None:
-        print("Initializing EasyOCR reader...")
-        ocr_reader = easyocr.Reader(['en'], gpu=False)
-        print("EasyOCR reader initialized")
+        print("🔁 Loading EasyOCR (one-time initialization)...")
+        ocr_reader = easyocr.Reader(["en"], gpu=False)
+        print("✅ EasyOCR ready")
     return ocr_reader
 
+# Pre-warm OCR on startup
+print("🚀 Pre-loading EasyOCR...")
+get_ocr_reader()
 
+# --------------------------------------------------
+# CLEANUP THREAD
+# --------------------------------------------------
 def cleanup_old_files():
     """Background task to delete files older than 1 hour"""
     while True:
@@ -66,55 +81,51 @@ def cleanup_old_files():
                     file_time = datetime.fromtimestamp(file_path.stat().st_mtime)
                     if now - file_time > timedelta(hours=1):
                         file_path.unlink()
-                        print(f"Cleaned up: {file_path.name}")
+                        print(f"🗑️ Cleaned up: {file_path.name}")
         except Exception as e:
             print(f"Cleanup error: {e}")
         
-        time.sleep(1800)
+        time.sleep(1800)  # Run every 30 minutes
 
+Thread(target=cleanup_old_files, daemon=True).start()
 
-cleanup_thread = Thread(target=cleanup_old_files, daemon=True)
-cleanup_thread.start()
-
-
+# --------------------------------------------------
+# TEXT EXTRACTION
+# --------------------------------------------------
 def extract_text_from_pdf(file_bytes):
     """Extract text from PDF - with OCR fallback for scanned PDFs"""
     try:
         pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
         text = ""
         
+        # Try normal text extraction first
         for page in pdf_reader.pages:
             page_text = page.extract_text()
             if page_text:
                 text += page_text + "\n\n"
         
-        # If no text found, it's a scanned PDF - use EasyOCR
-        if not text.strip():
-            print("PDF appears to be scanned - using EasyOCR...")
-            try:
-                from pdf2image import convert_from_bytes
-                images = convert_from_bytes(file_bytes, first_page=1, last_page=10)  # Limit to first 10 pages
-                
-                reader = get_ocr_reader()
-                print(f"Converting {len(images)} pages with OCR...")
-                
-                for i, image in enumerate(images):
-                    print(f"OCR on page {i+1}/{len(images)}...")
-                    # Convert PIL image to numpy array for EasyOCR
-                    import numpy as np
-                    img_array = np.array(image)
-                    
-                    # Extract text
-                    result = reader.readtext(img_array, detail=0, paragraph=True)
-                    page_text = ' '.join(result)
-                    text += page_text + "\n\n"
-                    
-            except ImportError:
-                raise Exception("This PDF contains scanned images. pdf2image is required but not installed.")
-            except Exception as ocr_error:
-                raise Exception(f"PDF is image-based but OCR failed: {str(ocr_error)}")
+        # If text found, return it
+        if text.strip():
+            return text.strip()
+        
+        # OCR fallback for scanned PDFs
+        print("📄 PDF appears to be scanned - using EasyOCR...")
+        from pdf2image import convert_from_bytes
+        images = convert_from_bytes(file_bytes, first_page=1, last_page=10)
+        
+        reader = get_ocr_reader()
+        print(f"🔍 Converting {len(images)} pages with OCR...")
+        
+        for i, img in enumerate(images, 1):
+            print(f"  Page {i}/{len(images)}...")
+            img = img.convert("RGB")
+            img_array = np.array(img)
+            result = reader.readtext(img_array, detail=0, paragraph=True)
+            if result:
+                text += " ".join(result) + "\n\n"
         
         return text.strip()
+        
     except Exception as e:
         raise Exception(f"Error extracting PDF: {str(e)}")
 
@@ -122,27 +133,25 @@ def extract_text_from_pdf(file_bytes):
 def extract_text_from_image(file_bytes):
     """Extract text from image using EasyOCR"""
     try:
-        print("Using EasyOCR for image text extraction...")
+        print("🖼️ Using EasyOCR for image text extraction...")
         
-        # Convert bytes to PIL Image then to numpy array
-        image = Image.open(io.BytesIO(file_bytes))
-        import numpy as np
+        image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
         img_array = np.array(image)
         
-        # Initialize reader and extract text
         reader = get_ocr_reader()
         result = reader.readtext(img_array, detail=0, paragraph=True)
-        text = ' '.join(result)
         
-        if not text.strip():
+        if not result:
             return "No text found in image"
         
-        return text.strip()
+        return " ".join(result).strip()
         
     except Exception as e:
         raise Exception(f"Error extracting image text: {str(e)}")
 
-
+# --------------------------------------------------
+# AI SUMMARY
+# --------------------------------------------------
 def generate_summary(text, user_type):
     """Generate summary using Groq API"""
     try:
@@ -164,7 +173,7 @@ Format your response as:
 Text to summarize:
 {text[:15000]}"""
 
-        print("Making request to Groq API...")
+        print("🤖 Making request to Groq API...")
         
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -184,8 +193,6 @@ Text to summarize:
             timeout=60
         )
         
-        print(f"Groq API response status: {response.status_code}")
-        
         if response.status_code != 200:
             error_msg = f"API returned status {response.status_code}"
             try:
@@ -193,7 +200,6 @@ Text to summarize:
                 error_msg += f": {error_data.get('error', {}).get('message', 'Unknown error')}"
             except:
                 error_msg += f": {response.text[:200]}"
-            print(f"ERROR: {error_msg}")
             raise Exception(error_msg)
         
         response.raise_for_status()
@@ -213,6 +219,7 @@ Text to summarize:
             "overall_summary": overall_summary,
             "full_text": summary_text
         }
+        
     except requests.exceptions.Timeout:
         raise Exception("API request timed out. Please try again.")
     except requests.exceptions.RequestException as e:
@@ -221,7 +228,9 @@ Text to summarize:
         print(f"ERROR in generate_summary: {str(e)}")
         raise Exception(f"Error generating summary: {str(e)}")
 
-
+# --------------------------------------------------
+# EXPORT FUNCTIONS
+# --------------------------------------------------
 def export_to_txt(summary):
     """Export summary to TXT"""
     content = f"PHANTOMNOTES SUMMARY\n{'=' * 50}\n\n{summary['full_text']}"
@@ -323,6 +332,7 @@ def export_to_pdf(summary):
     
     doc.build(story)
     
+    # Read and delete file
     with open(filepath, 'rb') as f:
         pdf_data = f.read()
     
@@ -386,6 +396,7 @@ def export_to_jpg(summary):
     draw.text((40, img_height - 60), "Generated by PhantomNotes", fill='#7f8c8d', font=body_font)
     img.save(str(filepath), 'JPEG', quality=95)
     
+    # Read and delete file
     with open(filepath, 'rb') as f:
         jpg_data = f.read()
     
@@ -396,9 +407,12 @@ def export_to_jpg(summary):
     
     return jpg_data
 
-
+# --------------------------------------------------
+# ROUTES
+# --------------------------------------------------
 @app.route('/')
 def home():
+    """Serve the main page"""
     return render_template('index.html')
 
 
@@ -409,14 +423,14 @@ def summarize():
         print("=== Summarize Request Started ===")
         
         if not GROQ_API_KEY:
-            print("ERROR: GROQ_API_KEY not found")
+            print("❌ ERROR: GROQ_API_KEY not found")
             return jsonify({"error": "API key not configured"}), 500
         
         files = request.files.getlist('files')
         user_type = request.form.get('user_type')
         
-        print(f"Files received: {len(files)}")
-        print(f"User type: {user_type}")
+        print(f"📁 Files received: {len(files)}")
+        print(f"👤 User type: {user_type}")
         
         if not files or len(files) == 0:
             return jsonify({"error": "No files uploaded"}), 400
@@ -430,7 +444,7 @@ def summarize():
         all_text = ""
         
         for file in files:
-            print(f"Processing file: {file.filename}")
+            print(f"📄 Processing: {file.filename}")
             
             if not file.filename:
                 continue
@@ -438,29 +452,29 @@ def summarize():
             content = file.read()
             
             if file.filename.lower().endswith('.pdf'):
-                print(f"PDF size: {len(content)} bytes")
+                print(f"  PDF size: {len(content)} bytes")
                 text = extract_text_from_pdf(content)
                 all_text += text + "\n\n"
             elif file.content_type and file.content_type.startswith('image/'):
-                print(f"Image size: {len(content)} bytes")
+                print(f"  Image size: {len(content)} bytes")
                 text = extract_text_from_image(content)
                 all_text += text + "\n\n"
             else:
                 return jsonify({"error": f"Unsupported file type: {file.filename}"}), 400
         
-        print(f"Total text extracted: {len(all_text)} characters")
+        print(f"📝 Total text extracted: {len(all_text)} characters")
         
         if not all_text.strip():
             return jsonify({"error": "No text could be extracted from files"}), 400
         
-        print("Generating summary...")
+        print("⚡ Generating summary...")
         summary = generate_summary(all_text, user_type)
         
-        print("Summary generated successfully")
+        print("✅ Summary generated successfully")
         return jsonify(summary)
     
     except Exception as e:
-        print(f"ERROR in summarize: {str(e)}")
+        print(f"❌ ERROR in summarize: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"Server error: {str(e)}"}), 500
@@ -509,11 +523,11 @@ def export_summary(format):
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
         
-        print(f"Exporting as {filename}")
+        print(f"💾 Exporting as {filename}")
         return response
     
     except Exception as e:
-        print(f"Export error: {str(e)}")
+        print(f"❌ Export error: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
