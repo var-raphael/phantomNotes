@@ -3,7 +3,6 @@ gunicorn
 requests
 PyPDF2
 Pillow
-pytesseract
 pdf2image
 reportlab
 python-dotenv

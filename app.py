@@ -2,14 +2,14 @@ import os
 import json
 import io
 import uuid
+import base64
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Thread
 import time
-from flask import Flask, request, render_template, jsonify, send_file
+from flask import Flask, request, render_template, jsonify, send_file, Response
 import PyPDF2
 from PIL import Image, ImageDraw, ImageFont
-import pytesseract
 import requests
 from dotenv import load_dotenv
 from reportlab.lib.pagesizes import letter
@@ -50,20 +50,16 @@ def cleanup_old_files():
             now = datetime.now()
             for file_path in EXPORT_DIR.glob("*"):
                 if file_path.is_file():
-                    # Get file modification time
                     file_time = datetime.fromtimestamp(file_path.stat().st_mtime)
-                    # Delete if older than 1 hour
                     if now - file_time > timedelta(hours=1):
                         file_path.unlink()
                         print(f"Cleaned up: {file_path.name}")
         except Exception as e:
             print(f"Cleanup error: {e}")
         
-        # Run cleanup every 30 minutes
         time.sleep(1800)
 
 
-# Start cleanup thread
 cleanup_thread = Thread(target=cleanup_old_files, daemon=True)
 cleanup_thread.start()
 
@@ -74,29 +70,32 @@ def extract_text_from_pdf(file_bytes):
         pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
         text = ""
         
-        # Try normal text extraction first
         for page in pdf_reader.pages:
             page_text = page.extract_text()
             if page_text:
                 text += page_text + "\n\n"
         
-        # If no text found, it might be a scanned PDF - use OCR
+        # If no text found, it's a scanned PDF - use Groq Vision
         if not text.strip():
-            print("PDF appears to be scanned - attempting OCR...")
+            print("PDF appears to be scanned - using Groq Vision API for OCR...")
             try:
                 from pdf2image import convert_from_bytes
+                images = convert_from_bytes(file_bytes, first_page=1, last_page=5)  # Limit to first 5 pages
                 
-                # Convert PDF pages to images
-                images = convert_from_bytes(file_bytes)
-                
-                print(f"Converting {len(images)} pages with OCR...")
+                print(f"Converting {len(images)} pages with Groq Vision...")
                 for i, image in enumerate(images):
                     print(f"OCR on page {i+1}/{len(images)}...")
-                    page_text = pytesseract.image_to_string(image)
+                    
+                    # Convert PIL image to base64
+                    img_buffer = io.BytesIO()
+                    image.save(img_buffer, format='PNG')
+                    img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+                    
+                    page_text = extract_text_from_image_groq(img_base64)
                     text += page_text + "\n\n"
                     
             except ImportError:
-                raise Exception("This PDF contains scanned images. Please install pdf2image: pip install pdf2image")
+                raise Exception("This PDF contains scanned images. pdf2image is required but not installed.")
             except Exception as ocr_error:
                 raise Exception(f"PDF is image-based but OCR failed: {str(ocr_error)}")
         
@@ -105,28 +104,75 @@ def extract_text_from_pdf(file_bytes):
         raise Exception(f"Error extracting PDF: {str(e)}")
 
 
-def extract_text_from_image(file_bytes):
-    """Extract text from image using OCR"""
+def extract_text_from_image_groq(image_base64):
+    """Extract text from image using Groq Vision API"""
     try:
-        # Check if tesseract is available
-        try:
-            import subprocess
-            subprocess.run(['tesseract', '--version'], 
-                         stdout=subprocess.DEVNULL, 
-                         stderr=subprocess.DEVNULL, 
-                         check=True)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            raise Exception("Tesseract OCR is not installed. Please contact support.")
+        print("Using Groq Vision API for image OCR...")
         
-        image = Image.open(io.BytesIO(file_bytes))
-        text = pytesseract.image_to_string(image)
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.2-90b-vision-preview",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Extract all text from this image. Preserve the layout and formatting as much as possible. If there's no text, just say 'No text found'."
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{image_base64}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "temperature": 0.1,
+                "max_tokens": 2000
+            },
+            timeout=60
+        )
+        
+        if response.status_code != 200:
+            error_msg = f"Groq Vision API returned status {response.status_code}"
+            try:
+                error_data = response.json()
+                error_msg += f": {error_data.get('error', {}).get('message', 'Unknown error')}"
+            except:
+                error_msg += f": {response.text[:200]}"
+            raise Exception(error_msg)
+        
+        data = response.json()
+        
+        if 'choices' not in data or len(data['choices']) == 0:
+            raise Exception("No response from Groq Vision API")
+        
+        text = data["choices"][0]["message"]["content"]
         return text.strip()
+        
+    except Exception as e:
+        raise Exception(f"Error with Groq Vision OCR: {str(e)}")
+
+
+def extract_text_from_image(file_bytes):
+    """Extract text from image using Groq Vision API"""
+    try:
+        # Convert bytes to base64
+        image_base64 = base64.b64encode(file_bytes).decode('utf-8')
+        return extract_text_from_image_groq(image_base64)
     except Exception as e:
         raise Exception(f"Error extracting image text: {str(e)}")
 
 
 def generate_summary(text, user_type):
-    """Generate summary using Groq API via requests"""
+    """Generate summary using Groq API"""
     try:
         system_prompt = USER_TYPES.get(user_type, USER_TYPES["quick"])
         
@@ -205,92 +251,80 @@ Text to summarize:
 
 
 def export_to_txt(summary):
-    """Export summary to TXT - In Memory"""
+    """Export summary to TXT"""
     content = f"PHANTOMNOTES SUMMARY\n{'=' * 50}\n\n{summary['full_text']}"
-    
     buffer = io.BytesIO()
     buffer.write(content.encode('utf-8'))
     buffer.seek(0)
-    
     return buffer
 
 
 def export_to_json(summary):
-    """Export summary to JSON - In Memory"""
+    """Export summary to JSON"""
     content = json.dumps(summary, indent=2, ensure_ascii=False)
-    
     buffer = io.BytesIO()
     buffer.write(content.encode('utf-8'))
     buffer.seek(0)
-    
     return buffer
 
 
 def export_to_html(summary):
-    """Export summary to HTML - In Memory"""
-    html_template = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>PhantomNotes Summary</title>
-        <style>
-            body {
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                max-width: 800px;
-                margin: 40px auto;
-                padding: 20px;
-                background: #f5f5f5;
-            }
-            .container {
-                background: white;
-                padding: 40px;
-                border-radius: 10px;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            }
-            h1 {
-                color: #2c3e50;
-                border-bottom: 3px solid #3498db;
-                padding-bottom: 10px;
-            }
-            h2 {
-                color: #34495e;
-                margin-top: 30px;
-            }
-            .summary-section {
-                margin: 20px 0;
-                line-height: 1.6;
-                white-space: pre-wrap;
-            }
-            .footer {
-                text-align: center;
-                margin-top: 40px;
-                color: #7f8c8d;
-                font-size: 14px;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>PhantomNotes Summary</h1>
-            <div class="summary-section">{{ full_text }}</div>
-            <div class="footer">Generated by PhantomNotes</div>
-        </div>
-    </body>
-    </html>
-    """
+    """Export summary to HTML"""
+    html_template = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>PhantomNotes Summary</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .summary-section {
+            margin: 20px 0;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PhantomNotes Summary</h1>
+        <div class="summary-section">{{ full_text }}</div>
+        <div class="footer">Generated by PhantomNotes</div>
+    </div>
+</body>
+</html>"""
     
     html_content = html_template.replace("{{ full_text }}", summary["full_text"])
-    
     buffer = io.BytesIO()
     buffer.write(html_content.encode('utf-8'))
     buffer.seek(0)
-    
     return buffer
 
 
 def export_to_pdf(summary):
-    """Export summary to PDF - Unique filename with cleanup"""
+    """Export summary to PDF"""
     unique_id = uuid.uuid4().hex[:8]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filepath = EXPORT_DIR / f"summary_{unique_id}_{timestamp}.pdf"
@@ -303,7 +337,6 @@ def export_to_pdf(summary):
         'CustomTitle',
         parent=styles['Heading1'],
         fontSize=24,
-        textColor='#2c3e50',
         spaceAfter=30
     )
     story.append(Paragraph("PhantomNotes Summary", title_style))
@@ -330,7 +363,7 @@ def export_to_pdf(summary):
 
 
 def export_to_jpg(summary):
-    """Export summary to JPG - Unique filename with cleanup"""
+    """Export summary to JPG"""
     unique_id = uuid.uuid4().hex[:8]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filepath = EXPORT_DIR / f"summary_{unique_id}_{timestamp}.jpg"
@@ -344,12 +377,8 @@ def export_to_jpg(summary):
         title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
         body_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
     except:
-        try:
-            title_font = ImageFont.truetype("arial.ttf", 24)
-            body_font = ImageFont.truetype("arial.ttf", 14)
-        except:
-            title_font = ImageFont.load_default()
-            body_font = ImageFont.load_default()
+        title_font = ImageFont.load_default()
+        body_font = ImageFont.load_default()
     
     draw.text((40, 40), "PhantomNotes Summary", fill='black', font=title_font)
     draw.line([(40, 80), (img_width - 40, 80)], fill='#3498db', width=3)
@@ -383,14 +412,12 @@ def export_to_jpg(summary):
         y_position += 10
     
     draw.text((40, img_height - 60), "Generated by PhantomNotes", fill='#7f8c8d', font=body_font)
-    
     img.save(str(filepath), 'JPEG', quality=95)
     return filepath
 
 
 @app.route('/')
 def home():
-    """Serve the main page"""
     return render_template('index.html')
 
 
@@ -401,8 +428,8 @@ def summarize():
         print("=== Summarize Request Started ===")
         
         if not GROQ_API_KEY:
-            print("ERROR: GROQ_API_KEY not found in environment")
-            return jsonify({"error": "API key not configured. Please check .env file"}), 500
+            print("ERROR: GROQ_API_KEY not found")
+            return jsonify({"error": "API key not configured"}), 500
         
         files = request.files.getlist('files')
         user_type = request.form.get('user_type')
@@ -411,15 +438,12 @@ def summarize():
         print(f"User type: {user_type}")
         
         if not files or len(files) == 0:
-            print("ERROR: No files uploaded")
             return jsonify({"error": "No files uploaded"}), 400
         
         if len(files) > 5:
-            print("ERROR: Too many files")
             return jsonify({"error": "Maximum 5 files allowed"}), 400
         
         if user_type not in USER_TYPES:
-            print(f"ERROR: Invalid user type: {user_type}")
             return jsonify({"error": "Invalid user type"}), 400
         
         all_text = ""
@@ -430,27 +454,25 @@ def summarize():
             if not file.filename:
                 continue
                 
-            if file.filename.endswith('.pdf'):
-                content = file.read()
+            content = file.read()
+            
+            if file.filename.lower().endswith('.pdf'):
                 print(f"PDF size: {len(content)} bytes")
                 text = extract_text_from_pdf(content)
                 all_text += text + "\n\n"
             elif file.content_type and file.content_type.startswith('image/'):
-                content = file.read()
                 print(f"Image size: {len(content)} bytes")
                 text = extract_text_from_image(content)
                 all_text += text + "\n\n"
             else:
-                print(f"ERROR: Unsupported file type: {file.filename}")
                 return jsonify({"error": f"Unsupported file type: {file.filename}"}), 400
         
         print(f"Total text extracted: {len(all_text)} characters")
         
         if not all_text.strip():
-            print("ERROR: No text could be extracted")
             return jsonify({"error": "No text could be extracted from files"}), 400
         
-        print("Calling Groq API...")
+        print("Generating summary...")
         summary = generate_summary(all_text, user_type)
         
         print("Summary generated successfully")
@@ -465,77 +487,72 @@ def summarize():
 
 @app.route('/export/<format>', methods=['POST'])
 def export_summary(format):
-    """Export summary in specified format"""
+    """Export summary in specified format with proper filename"""
     try:
         summary = request.get_json()
-        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         if format == 'txt':
             buffer = export_to_txt(summary)
-            return send_file(
-                buffer,
-                mimetype='text/plain',
-                as_attachment=True,
-                download_name=f'phantomnotes_summary_{timestamp}.txt'
-            )
+            filename = f'phantomnotes_summary_{timestamp}.txt'
+            
+            response = Response(buffer.getvalue())
+            response.headers['Content-Type'] = 'text/plain'
+            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
         
         elif format == 'json':
             buffer = export_to_json(summary)
-            return send_file(
-                buffer,
-                mimetype='application/json',
-                as_attachment=True,
-                download_name=f'phantomnotes_summary_{timestamp}.json'
-            )
+            filename = f'phantomnotes_summary_{timestamp}.json'
+            
+            response = Response(buffer.getvalue())
+            response.headers['Content-Type'] = 'application/json'
+            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
         
         elif format == 'html':
             buffer = export_to_html(summary)
-            return send_file(
-                buffer,
-                mimetype='text/html',
-                as_attachment=True,
-                download_name=f'phantomnotes_summary_{timestamp}.html'
-            )
+            filename = f'phantomnotes_summary_{timestamp}.html'
+            
+            response = Response(buffer.getvalue())
+            response.headers['Content-Type'] = 'text/html'
+            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
         
         elif format == 'pdf':
             filepath = export_to_pdf(summary)
-            response = send_file(
-                filepath,
-                mimetype='application/pdf',
-                as_attachment=True,
-                download_name=f'phantomnotes_summary_{timestamp}.pdf'
-            )
+            filename = f'phantomnotes_summary_{timestamp}.pdf'
             
-            @response.call_on_close
-            def cleanup():
-                try:
-                    if filepath.exists():
-                        filepath.unlink()
-                        print(f"Cleaned up: {filepath.name}")
-                except Exception as e:
-                    print(f"Cleanup error: {e}")
+            with open(filepath, 'rb') as f:
+                pdf_data = f.read()
             
+            # Delete file immediately
+            try:
+                filepath.unlink()
+            except:
+                pass
+            
+            response = Response(pdf_data)
+            response.headers['Content-Type'] = 'application/pdf'
+            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
             return response
         
         elif format == 'jpg':
             filepath = export_to_jpg(summary)
-            response = send_file(
-                filepath,
-                mimetype='image/jpeg',
-                as_attachment=True,
-                download_name=f'phantomnotes_summary_{timestamp}.jpg'
-            )
+            filename = f'phantomnotes_summary_{timestamp}.jpg'
             
-            @response.call_on_close
-            def cleanup():
-                try:
-                    if filepath.exists():
-                        filepath.unlink()
-                        print(f"Cleaned up: {filepath.name}")
-                except Exception as e:
-                    print(f"Cleanup error: {e}")
+            with open(filepath, 'rb') as f:
+                jpg_data = f.read()
             
+            # Delete file immediately
+            try:
+                filepath.unlink()
+            except:
+                pass
+            
+            response = Response(jpg_data)
+            response.headers['Content-Type'] = 'image/jpeg'
+            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
             return response
         
         else:
@@ -543,6 +560,8 @@ def export_summary(format):
     
     except Exception as e:
         print(f"Export error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 

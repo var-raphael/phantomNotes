@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# exit on error
 set -o errexit
 
-# Install system dependencies
+# Only install poppler for PDF to image conversion
 apt-get update
-apt-get install -y tesseract-ocr poppler-utils
+apt-get install -y poppler-utils
 
 # Install Python dependencies
 pip install --upgrade pip
