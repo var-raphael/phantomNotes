@@ -1,21 +1,27 @@
-// Theme Toggle
 const themeToggle = document.getElementById('themeToggle');
 const html = document.documentElement;
+const fileInput = document.getElementById('file');
+const fileNameDisplay = document.getElementById('fileName');
+const textInput = document.getElementById('textInput');
+const charCount = document.getElementById('charCount');
+const tabBtns = document.querySelectorAll('.tab-btn');
+const tabContents = document.querySelectorAll('.tab-content');
 
-// Load saved theme
-const currentTheme = localStorage.getItem('theme') || 'light';
-html.setAttribute('data-theme', currentTheme);
-updateThemeIcon(currentTheme);
+let currentSummary = null;
+
+// Theme management
+const savedTheme = localStorage.getItem('theme') || 'dark';
+html.setAttribute('data-theme', savedTheme);
+updateThemeIcon(savedTheme);
 
 themeToggle.addEventListener('click', () => {
-    const currentTheme = html.getAttribute('data-theme');
-    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    const current = html.getAttribute('data-theme');
+    const newTheme = current === 'light' ? 'dark' : 'light';
     
     html.setAttribute('data-theme', newTheme);
     localStorage.setItem('theme', newTheme);
     updateThemeIcon(newTheme);
     
-    // Add animation
     themeToggle.style.transform = 'rotate(360deg)';
     setTimeout(() => {
         themeToggle.style.transform = '';
@@ -24,71 +30,109 @@ themeToggle.addEventListener('click', () => {
 
 function updateThemeIcon(theme) {
     const icon = themeToggle.querySelector('i');
-    if (theme === 'dark') {
-        icon.className = 'fas fa-sun';
-    } else {
-        icon.className = 'fas fa-moon';
-    }
+    icon.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
 }
 
-// File Input Display
-const fileInput = document.getElementById('files');
-const fileNamesDisplay = document.getElementById('fileNames');
-
-fileInput.addEventListener('change', (e) => {
-    const files = e.target.files;
-    if (files.length > 0) {
-        if (files.length === 1) {
-            fileNamesDisplay.innerHTML = `<i class="fas fa-check-circle"></i> ${files[0].name}`;
+// Tab switching
+tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        const tabName = btn.getAttribute('data-tab');
+        
+        tabBtns.forEach(b => b.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+        
+        btn.classList.add('active');
+        document.getElementById(`${tabName}-tab`).classList.add('active');
+        
+        // Clear inputs when switching tabs
+        if (tabName === 'pdf') {
+            textInput.value = '';
+            updateCharCount();
         } else {
-            fileNamesDisplay.innerHTML = `<i class="fas fa-check-circle"></i> ${files.length} files selected`;
+            fileInput.value = '';
+            resetFileDisplay();
         }
-        fileNamesDisplay.style.color = 'var(--success)';
+    });
+});
+
+// File input handling
+fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        fileNameDisplay.innerHTML = `<i class="fas fa-file-pdf"></i> ${file.name}`;
+        fileNameDisplay.style.color = 'var(--success)';
     } else {
-        fileNamesDisplay.innerHTML = 'Choose PDF or Images (Max 5)';
-        fileNamesDisplay.style.color = '';
+        resetFileDisplay();
     }
 });
 
-// Store current summary globally
-let currentSummary = null;
+function resetFileDisplay() {
+    fileNameDisplay.innerHTML = 'Drop your PDF here or click to browse';
+    fileNameDisplay.style.color = '';
+}
 
-// Handle HTMX response
+// Text input character counter
+textInput.addEventListener('input', updateCharCount);
+
+function updateCharCount() {
+    const count = textInput.value.length;
+    charCount.textContent = count.toLocaleString();
+}
+
+// Form validation before submit
+document.getElementById('uploadForm').addEventListener('submit', (e) => {
+    const activeTab = document.querySelector('.tab-btn.active').getAttribute('data-tab');
+    
+    if (activeTab === 'pdf') {
+        if (!fileInput.files.length) {
+            e.preventDefault();
+            showError('Please upload a PDF file');
+            return false;
+        }
+        // Clear text input to avoid sending both
+        textInput.value = '';
+    } else {
+        if (!textInput.value.trim()) {
+            e.preventDefault();
+            showError('Please enter some text to summarize');
+            return false;
+        }
+        // Clear file input to avoid sending both
+        fileInput.value = '';
+    }
+});
+
+// HTMX response handling
 document.body.addEventListener('htmx:afterRequest', (event) => {
     if (event.detail.xhr.status === 200) {
         try {
             const response = JSON.parse(event.detail.xhr.responseText);
             
-            // Check if it's an error response
             if (response.error) {
-                displayError(response.error);
+                showError(response.error);
                 return;
             }
             
-            // Store the summary
             currentSummary = response;
-            
-            // Display the results
-            displayResults(response);
+            showResults(response);
         } catch (error) {
-            displayError('Error parsing response');
+            showError('Failed to parse response');
         }
     } else {
-        displayError('Error processing request. Please try again.');
+        showError('Request failed. Please try again.');
     }
 });
 
-// Handle HTMX errors
 document.body.addEventListener('htmx:responseError', (event) => {
     try {
         const response = JSON.parse(event.detail.xhr.responseText);
-        displayError(response.error || 'An error occurred');
+        showError(response.error || 'An error occurred');
     } catch {
-        displayError('Network error. Please check your connection.');
+        showError('Network error. Check your connection.');
     }
 });
 
-function displayResults(data) {
+function showResults(data) {
     const container = document.getElementById('resultContainer');
     
     container.innerHTML = `
@@ -96,7 +140,7 @@ function displayResults(data) {
             <div class="summary-box">
                 <h3>
                     <i class="fas fa-book-open"></i>
-                    Chapter/Section Summaries
+                    Chapter Summaries
                 </h3>
                 <div class="summary-content">${escapeHtml(data.chapter_summaries)}</div>
             </div>
@@ -112,7 +156,7 @@ function displayResults(data) {
             <div class="export-section">
                 <h3>
                     <i class="fas fa-download"></i>
-                    Export Summary
+                    Export Options
                 </h3>
                 <div class="export-buttons">
                     <button class="export-btn" onclick="downloadFile('txt')">
@@ -140,11 +184,10 @@ function displayResults(data) {
         </div>
     `;
     
-    // Scroll to results
     container.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function displayError(message) {
+function showError(message) {
     const container = document.getElementById('resultContainer');
     
     container.innerHTML = `
@@ -158,21 +201,19 @@ function displayError(message) {
         </div>
     `;
     
-    // Scroll to error
     container.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function downloadFile(format) {
     if (!currentSummary) {
-        displayError('No summary available to export');
+        showError('No summary available');
         return;
     }
     
-    // Find the clicked button and show loading state
-    const clickedBtn = event.target.closest('.export-btn');
-    const originalContent = clickedBtn.innerHTML;
-    clickedBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
-    clickedBtn.disabled = true;
+    const btn = event.target.closest('.export-btn');
+    const originalContent = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+    btn.disabled = true;
     
     try {
         const response = await fetch(`/export/${format}`, {
@@ -198,60 +239,53 @@ async function downloadFile(format) {
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
         
-        // Show success feedback
-        clickedBtn.innerHTML = '<i class="fas fa-check"></i> Downloaded!';
+        btn.innerHTML = '<i class="fas fa-check"></i> Done!';
         setTimeout(() => {
-            clickedBtn.innerHTML = originalContent;
-            clickedBtn.disabled = false;
+            btn.innerHTML = originalContent;
+            btn.disabled = false;
         }, 2000);
         
     } catch (error) {
-        displayError(`Error downloading ${format.toUpperCase()}: ${error.message}`);
-        clickedBtn.innerHTML = originalContent;
-        clickedBtn.disabled = false;
+        showError(`Export failed: ${error.message}`);
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
     }
 }
 
-// Escape HTML to prevent XSS
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
 
-// Drag and drop support
-const fileUploadDisplay = document.querySelector('.file-upload-display');
+// Drag and drop
+const fileDisplay = document.querySelector('.file-upload-display');
 
-['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-    fileUploadDisplay.addEventListener(eventName, preventDefaults, false);
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+    fileDisplay.addEventListener(evt, e => {
+        e.preventDefault();
+        e.stopPropagation();
+    });
 });
 
-function preventDefaults(e) {
-    e.preventDefault();
-    e.stopPropagation();
-}
-
-['dragenter', 'dragover'].forEach(eventName => {
-    fileUploadDisplay.addEventListener(eventName, () => {
-        fileUploadDisplay.style.borderColor = 'var(--accent)';
-        fileUploadDisplay.style.background = 'var(--bg-secondary)';
-    }, false);
+['dragenter', 'dragover'].forEach(evt => {
+    fileDisplay.addEventListener(evt, () => {
+        fileDisplay.style.borderColor = 'var(--accent)';
+        fileDisplay.style.background = 'var(--bg-card)';
+    });
 });
 
-['dragleave', 'drop'].forEach(eventName => {
-    fileUploadDisplay.addEventListener(eventName, () => {
-        fileUploadDisplay.style.borderColor = '';
-        fileUploadDisplay.style.background = '';
-    }, false);
+['dragleave', 'drop'].forEach(evt => {
+    fileDisplay.addEventListener(evt, () => {
+        fileDisplay.style.borderColor = '';
+        fileDisplay.style.background = '';
+    });
 });
 
-fileUploadDisplay.addEventListener('drop', (e) => {
-    const dt = e.dataTransfer;
-    const files = dt.files;
-    
-    fileInput.files = files;
-    
-    // Trigger change event
-    const event = new Event('change', { bubbles: true });
-    fileInput.dispatchEvent(event);
-}, false);
+fileDisplay.addEventListener('drop', (e) => {
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        fileInput.files = files;
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+});

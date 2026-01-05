@@ -4,36 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PhantomNotes - AI Document Summarizer</title>
-    
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <!-- HTMX -->
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    
-    <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <!-- Theme Toggle Button -->
     <button id="themeToggle" class="theme-toggle" aria-label="Toggle theme">
         <i class="fas fa-moon"></i>
     </button>
 
     <div class="container">
-        <!-- Header -->
         <header class="header">
             <div class="logo">
                 <i class="fas fa-ghost"></i>
                 <h1>PhantomNotes</h1>
             </div>
-            <p class="subtitle">
-                <i class="fas fa-magic"></i> 
-                Extract and summarize your documents instantly with AI
-            </p>
+            <p class="subtitle">Transform your documents into intelligent summaries</p>
         </header>
 
-        <!-- Upload Form -->
         <div class="card">
             <form id="uploadForm" 
                   hx-post="/summarize" 
@@ -41,78 +29,98 @@
                   hx-target="#resultContainer"
                   hx-indicator="#spinner">
                 
-                <!-- File Upload -->
-                <div class="form-group">
-                    <label for="files">
-                        <i class="fas fa-cloud-upload-alt"></i> 
-                        Upload Documents
-                    </label>
-                    <div class="file-upload-wrapper">
-                        <input 
-                            type="file" 
-                            id="files" 
-                            name="files" 
-                            multiple 
-                            accept=".pdf,image/*" 
-                            required
-                            class="file-input">
-                        <div class="file-upload-display">
-                            <i class="fas fa-file-upload"></i>
-                            <span id="fileNames">Choose PDF or Images (Max 5)</span>
-                        </div>
-                    </div>
-                    <small class="help-text">
-                        <i class="fas fa-info-circle"></i> 
-                        Supported: PDF, JPG, PNG (Max 50MB total)
-                    </small>
+                <!-- Input Method Tabs -->
+                <div class="input-tabs">
+                    <button type="button" class="tab-btn active" data-tab="pdf">
+                        <i class="fas fa-file-pdf"></i>
+                        PDF Upload
+                    </button>
+                    <button type="button" class="tab-btn" data-tab="text">
+                        <i class="fas fa-keyboard"></i>
+                        Paste Text
+                    </button>
                 </div>
 
-                <!-- User Type Selection -->
+                <!-- PDF Upload Tab -->
+                <div class="tab-content active" id="pdf-tab">
+                    <div class="form-group">
+                        <label for="file">
+                            <i class="fas fa-file-pdf"></i> 
+                            Upload PDF Document
+                        </label>
+                        <div class="file-upload-wrapper">
+                            <input 
+                                type="file" 
+                                id="file" 
+                                name="file" 
+                                accept=".pdf" 
+                                class="file-input">
+                            <div class="file-upload-display">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <span id="fileName">Drop your PDF here or click to browse</span>
+                                <small>Maximum file size: 50MB</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Text Input Tab -->
+                <div class="tab-content" id="text-tab">
+                    <div class="form-group">
+                        <label for="textInput">
+                            <i class="fas fa-align-left"></i> 
+                            Paste Your Text
+                        </label>
+                        <textarea 
+                            id="textInput" 
+                            name="text_input" 
+                            class="text-input"
+                            placeholder="Paste your text here... (articles, documents, notes, etc.)"
+                            rows="12"></textarea>
+                        <small class="char-counter">
+                            <span id="charCount">0</span> characters
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Summary Type Selection -->
                 <div class="form-group">
                     <label for="userType">
                         <i class="fas fa-user-tag"></i> 
-                        I am a...
+                        Summary Type
                     </label>
                     <select id="userType" name="user_type" required class="select-input">
-                        <option value="student">
-                            <i class="fas fa-graduation-cap"></i> Student
-                        </option>
-                        <option value="novel_reader">Novel Reader</option>
-                        <option value="researcher">Researcher</option>
-                        <option value="professional">Professional/Business</option>
-                        <option value="legal">Legal Document Reader</option>
-                        <option value="technical">Technical Documentation</option>
-                        <option value="news">News Article Reader</option>
-                        <option value="meeting">Meeting Notes</option>
+                        <option value="student">Student - Study Notes</option>
+                        <option value="novel_reader">Novel Reader - Plot & Characters</option>
+                        <option value="researcher">Researcher - Methodology & Findings</option>
+                        <option value="professional">Business - Action Items & Decisions</option>
+                        <option value="legal">Legal - Clauses & Terms</option>
+                        <option value="technical">Technical - Architecture & APIs</option>
+                        <option value="news">News - 5W1H Summary</option>
+                        <option value="meeting">Meeting Notes - Decisions & Actions</option>
                         <option value="quick">Quick Overview</option>
                         <option value="detailed">Detailed Analysis</option>
                     </select>
                 </div>
 
-                <!-- Submit Button -->
                 <button type="submit" class="btn btn-primary">
-                    <i class="fas fa-brain"></i>
+                    <i class="fas fa-magic"></i>
                     Generate Summary
                 </button>
 
-                <!-- Loading Spinner -->
                 <div id="spinner" class="spinner-container htmx-indicator">
                     <div class="spinner">
-                        <i class="fas fa-ghost fa-3x"></i>
+                        <div class="spinner-ring"></div>
+                        <i class="fas fa-ghost"></i>
                     </div>
-                    <p class="loading-text">
-                        <i class="fas fa-sparkles"></i> 
-                        Processing your document with AI magic...
-                    </p>
+                    <p class="loading-text">Analyzing your document...</p>
                 </div>
             </form>
         </div>
 
-        <!-- Results Container -->
         <div id="resultContainer"></div>
     </div>
 
-    <!-- Scripts -->
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
