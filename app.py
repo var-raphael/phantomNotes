@@ -12,8 +12,6 @@ from dotenv import load_dotenv
 
 import requests
 import PyPDF2
-import easyocr
-import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from reportlab.lib.pagesizes import letter
@@ -33,6 +31,7 @@ EXPORT_DIR = Path("exports")
 EXPORT_DIR.mkdir(exist_ok=True)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+OCR_API_URL = os.getenv("OCR_API_URL")  # Your separate OCR service endpoint
 
 # --------------------------------------------------
 # USER TYPES
@@ -49,24 +48,6 @@ USER_TYPES = {
     "quick": "Provide an ultra-compressed summary with only the most essential bullet points.",
     "detailed": "Provide an in-depth, detailed analysis that preserves nuance and context."
 }
-
-# --------------------------------------------------
-# OCR (PRE-WARMED ON STARTUP)
-# --------------------------------------------------
-ocr_reader = None
-
-def get_ocr_reader():
-    """Lazy load EasyOCR reader"""
-    global ocr_reader
-    if ocr_reader is None:
-        print("🔁 Loading EasyOCR (one-time initialization)...")
-        ocr_reader = easyocr.Reader(["en"], gpu=False)
-        print("✅ EasyOCR ready")
-    return ocr_reader
-
-# Pre-warm OCR on startup
-print("🚀 Pre-loading EasyOCR...")
-get_ocr_reader()
 
 # --------------------------------------------------
 # CLEANUP THREAD
@@ -93,36 +74,20 @@ Thread(target=cleanup_old_files, daemon=True).start()
 # TEXT EXTRACTION
 # --------------------------------------------------
 def extract_text_from_pdf(file_bytes):
-    """Extract text from PDF - with OCR fallback for scanned PDFs"""
+    """Extract text from PDF - supports text-based PDFs only"""
     try:
         pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
         text = ""
         
-        # Try normal text extraction first
+        # Extract text from all pages
         for page in pdf_reader.pages:
             page_text = page.extract_text()
             if page_text:
                 text += page_text + "\n\n"
         
-        # If text found, return it
-        if text.strip():
-            return text.strip()
-        
-        # OCR fallback for scanned PDFs
-        print("📄 PDF appears to be scanned - using EasyOCR...")
-        from pdf2image import convert_from_bytes
-        images = convert_from_bytes(file_bytes, first_page=1, last_page=10)
-        
-        reader = get_ocr_reader()
-        print(f"🔍 Converting {len(images)} pages with OCR...")
-        
-        for i, img in enumerate(images, 1):
-            print(f"  Page {i}/{len(images)}...")
-            img = img.convert("RGB")
-            img_array = np.array(img)
-            result = reader.readtext(img_array, detail=0, paragraph=True)
-            if result:
-                text += " ".join(result) + "\n\n"
+        # If no text found, it's likely a scanned PDF
+        if not text.strip():
+            raise Exception("This appears to be a scanned PDF with no extractable text. Please use the image OCR service instead.")
         
         return text.strip()
         
@@ -130,22 +95,56 @@ def extract_text_from_pdf(file_bytes):
         raise Exception(f"Error extracting PDF: {str(e)}")
 
 
-def extract_text_from_image(file_bytes):
-    """Extract text from image using EasyOCR"""
+def extract_text_from_image_via_api(file_bytes):
+    """
+    Send image to external OCR API service and get text back.
+    
+    Expected API format:
+    POST /ocr
+    Body: multipart/form-data with 'image' field
+    
+    Expected Response:
+    {
+        "success": true,
+        "text": "extracted text here",
+        "error": null
+    }
+    """
     try:
-        print("🖼️ Using EasyOCR for image text extraction...")
+        if not OCR_API_URL:
+            raise Exception("OCR_API_URL not configured. Please set it in your .env file.")
         
-        image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
-        img_array = np.array(image)
+        print(f"🖼️ Sending image to OCR service: {OCR_API_URL}")
         
-        reader = get_ocr_reader()
-        result = reader.readtext(img_array, detail=0, paragraph=True)
+        # Send image to external OCR service
+        files = {'image': ('image.png', file_bytes, 'image/png')}
+        response = requests.post(
+            f"{OCR_API_URL}/ocr",
+            files=files,
+            timeout=120  # 2 minute timeout for OCR processing
+        )
         
-        if not result:
+        if response.status_code != 200:
+            raise Exception(f"OCR service returned status {response.status_code}: {response.text[:200]}")
+        
+        data = response.json()
+        
+        if not data.get('success'):
+            error_msg = data.get('error', 'Unknown error from OCR service')
+            raise Exception(f"OCR service error: {error_msg}")
+        
+        extracted_text = data.get('text', '').strip()
+        
+        if not extracted_text:
             return "No text found in image"
         
-        return " ".join(result).strip()
+        print(f"✅ OCR service extracted {len(extracted_text)} characters")
+        return extracted_text
         
+    except requests.exceptions.Timeout:
+        raise Exception("OCR service request timed out. Please try again.")
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Error connecting to OCR service: {str(e)}")
     except Exception as e:
         raise Exception(f"Error extracting image text: {str(e)}")
 
@@ -457,7 +456,7 @@ def summarize():
                 all_text += text + "\n\n"
             elif file.content_type and file.content_type.startswith('image/'):
                 print(f"  Image size: {len(content)} bytes")
-                text = extract_text_from_image(content)
+                text = extract_text_from_image_via_api(content)
                 all_text += text + "\n\n"
             else:
                 return jsonify({"error": f"Unsupported file type: {file.filename}"}), 400
@@ -533,7 +532,24 @@ def export_summary(format):
         return jsonify({"error": str(e)}), 500
 
 
+# --------------------------------------------------
+# HEALTH CHECK
+# --------------------------------------------------
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint"""
+    return jsonify({
+        "status": "healthy",
+        "service": "PhantomNotes",
+        "ocr_service_configured": bool(OCR_API_URL)
+    })
+
+
 if __name__ == '__main__':
-    print("🚀 PhantomNotes is starting...")
-    print("📁 Export cleanup: Files older than 1 hour will be auto-deleted")
+    print("PhantomNotes is starting...")
+    print(f"Export cleanup: Files older than 1 hour will be auto-deleted")
+    if OCR_API_URL:
+        print(f"OCR service configured at: {OCR_API_URL}")
+    else:
+        print("OCR_API_URL not configured - image processing will fail")
     app.run(host='0.0.0.0', port=8000, debug=True)

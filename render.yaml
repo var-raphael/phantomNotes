@@ -3,9 +3,11 @@ services:
     name: phantomnotes
     env: python
     buildCommand: "./build.sh"
-    startCommand: "gunicorn app:app"
+    startCommand: "gunicorn app:app --timeout 120"
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: GROQ_API_KEY
+        sync: false
+      - key: OCR_API_URL
         sync: false

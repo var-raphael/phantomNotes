@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 set -o errexit
 
-# Install system dependencies
-apt-get update
-apt-get install -y poppler-utils
+# No system dependencies needed anymore!
 
 # Install Python dependencies
 pip install --upgrade pip
