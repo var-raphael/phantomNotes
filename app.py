@@ -111,6 +111,8 @@ Format your response as:
 Text to summarize:
 {text[:15000]}"""
 
+        print("Making request to Groq API...")
+        
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={
@@ -125,11 +127,27 @@ Text to summarize:
                 ],
                 "temperature": 0.3,
                 "max_tokens": 4000
-            }
+            },
+            timeout=60  # Add timeout
         )
+        
+        print(f"Groq API response status: {response.status_code}")
+        
+        if response.status_code != 200:
+            error_msg = f"API returned status {response.status_code}"
+            try:
+                error_data = response.json()
+                error_msg += f": {error_data.get('error', {}).get('message', 'Unknown error')}"
+            except:
+                error_msg += f": {response.text[:200]}"
+            print(f"ERROR: {error_msg}")
+            raise Exception(error_msg)
         
         response.raise_for_status()
         data = response.json()
+        
+        if 'choices' not in data or len(data['choices']) == 0:
+            raise Exception("No response from AI model")
         
         summary_text = data["choices"][0]["message"]["content"]
         
@@ -142,7 +160,12 @@ Text to summarize:
             "overall_summary": overall_summary,
             "full_text": summary_text
         }
+    except requests.exceptions.Timeout:
+        raise Exception("API request timed out. Please try again.")
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Network error: {str(e)}")
     except Exception as e:
+        print(f"ERROR in generate_summary: {str(e)}")
         raise Exception(f"Error generating summary: {str(e)}")
 
 
@@ -345,38 +368,70 @@ def home():
 def summarize():
     """Process uploaded files and generate summary"""
     try:
+        print("=== Summarize Request Started ===")
+        
+        # Check if GROQ API key is set
+        if not GROQ_API_KEY:
+            print("ERROR: GROQ_API_KEY not found in environment")
+            return jsonify({"error": "API key not configured. Please check .env file"}), 500
+        
         files = request.files.getlist('files')
         user_type = request.form.get('user_type')
         
+        print(f"Files received: {len(files)}")
+        print(f"User type: {user_type}")
+        
+        if not files or len(files) == 0:
+            print("ERROR: No files uploaded")
+            return jsonify({"error": "No files uploaded"}), 400
+        
         if len(files) > 5:
+            print("ERROR: Too many files")
             return jsonify({"error": "Maximum 5 files allowed"}), 400
         
         if user_type not in USER_TYPES:
+            print(f"ERROR: Invalid user type: {user_type}")
             return jsonify({"error": "Invalid user type"}), 400
         
         all_text = ""
         
         for file in files:
+            print(f"Processing file: {file.filename}")
+            
+            if not file.filename:
+                continue
+                
             if file.filename.endswith('.pdf'):
                 content = file.read()
+                print(f"PDF size: {len(content)} bytes")
                 text = extract_text_from_pdf(content)
                 all_text += text + "\n\n"
             elif file.content_type and file.content_type.startswith('image/'):
                 content = file.read()
+                print(f"Image size: {len(content)} bytes")
                 text = extract_text_from_image(content)
                 all_text += text + "\n\n"
             else:
+                print(f"ERROR: Unsupported file type: {file.filename}")
                 return jsonify({"error": f"Unsupported file type: {file.filename}"}), 400
         
+        print(f"Total text extracted: {len(all_text)} characters")
+        
         if not all_text.strip():
+            print("ERROR: No text could be extracted")
             return jsonify({"error": "No text could be extracted from files"}), 400
         
+        print("Calling Groq API...")
         summary = generate_summary(all_text, user_type)
         
+        print("Summary generated successfully")
         return jsonify(summary)
     
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"ERROR in summarize: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
 @app.route('/export/<format>', methods=['POST'])
