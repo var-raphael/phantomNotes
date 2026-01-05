@@ -69,12 +69,37 @@ cleanup_thread.start()
 
 
 def extract_text_from_pdf(file_bytes):
-    """Extract text from PDF"""
+    """Extract text from PDF - with OCR fallback for scanned PDFs"""
     try:
         pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
         text = ""
+        
+        # Try normal text extraction first
         for page in pdf_reader.pages:
-            text += page.extract_text() + "\n\n"
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n\n"
+        
+        # If no text found, it might be a scanned PDF - use OCR
+        if not text.strip():
+            print("PDF appears to be scanned - attempting OCR...")
+            try:
+                from pdf2image import convert_from_bytes
+                
+                # Convert PDF pages to images
+                images = convert_from_bytes(file_bytes)
+                
+                print(f"Converting {len(images)} pages with OCR...")
+                for i, image in enumerate(images):
+                    print(f"OCR on page {i+1}/{len(images)}...")
+                    page_text = pytesseract.image_to_string(image)
+                    text += page_text + "\n\n"
+                    
+            except ImportError:
+                raise Exception("This PDF contains scanned images. Please install pdf2image: pip install pdf2image")
+            except Exception as ocr_error:
+                raise Exception(f"PDF is image-based but OCR failed: {str(ocr_error)}")
+        
         return text.strip()
     except Exception as e:
         raise Exception(f"Error extracting PDF: {str(e)}")
