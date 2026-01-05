@@ -304,6 +304,8 @@ body {
     margin-bottom: 25px;
     border-left: 4px solid var(--accent);
     transition: all 0.3s ease;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .summary-box:hover {
@@ -318,6 +320,7 @@ body {
     align-items: center;
     gap: 10px;
     font-size: 1.5rem;
+    flex-wrap: wrap;
 }
 
 .summary-box h3 i {
@@ -329,6 +332,9 @@ body {
     line-height: 1.8;
     color: var(--text-primary);
     font-size: 1rem;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 100%;
 }
 
 /* Export Buttons */
@@ -457,10 +463,12 @@ body {
 @media (max-width: 768px) {
     .container {
         padding: 10px;
+        max-width: 100%;
     }
     
     .card {
-        padding: 25px;
+        padding: 20px;
+        border-radius: 15px;
     }
     
     .logo h1 {
@@ -469,6 +477,24 @@ body {
     
     .logo i {
         font-size: 2rem;
+    }
+    
+    .subtitle {
+        font-size: 1rem;
+    }
+    
+    .summary-box {
+        padding: 20px;
+        width: 100%;
+    }
+    
+    .summary-box h3 {
+        font-size: 1.2rem;
+    }
+    
+    .summary-content {
+        font-size: 0.95rem;
+        line-height: 1.6;
     }
     
     .export-buttons {
@@ -480,5 +506,14 @@ body {
         right: 10px;
         width: 45px;
         height: 45px;
+    }
+    
+    .form-group label {
+        font-size: 0.95rem;
+    }
+    
+    .btn {
+        font-size: 1rem;
+        padding: 15px 20px;
     }
 }

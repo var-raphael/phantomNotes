@@ -108,6 +108,16 @@ def extract_text_from_pdf(file_bytes):
 def extract_text_from_image(file_bytes):
     """Extract text from image using OCR"""
     try:
+        # Check if tesseract is available
+        try:
+            import subprocess
+            subprocess.run(['tesseract', '--version'], 
+                         stdout=subprocess.DEVNULL, 
+                         stderr=subprocess.DEVNULL, 
+                         check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            raise Exception("Tesseract OCR is not installed. Please contact support.")
+        
         image = Image.open(io.BytesIO(file_bytes))
         text = pytesseract.image_to_string(image)
         return text.strip()
@@ -465,13 +475,16 @@ def export_summary(format):
     try:
         summary = request.get_json()
         
+        # Generate timestamp for unique filenames
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
         if format == 'txt':
             buffer = export_to_txt(summary)
             return send_file(
                 buffer,
                 mimetype='text/plain',
                 as_attachment=True,
-                download_name='summary.txt'
+                download_name=f'phantomnotes_summary_{timestamp}.txt'
             )
         
         elif format == 'json':
@@ -480,7 +493,7 @@ def export_summary(format):
                 buffer,
                 mimetype='application/json',
                 as_attachment=True,
-                download_name='summary.json'
+                download_name=f'phantomnotes_summary_{timestamp}.json'
             )
         
         elif format == 'html':
@@ -489,7 +502,7 @@ def export_summary(format):
                 buffer,
                 mimetype='text/html',
                 as_attachment=True,
-                download_name='summary.html'
+                download_name=f'phantomnotes_summary_{timestamp}.html'
             )
         
         elif format == 'pdf':
@@ -498,7 +511,7 @@ def export_summary(format):
                 filepath,
                 mimetype='application/pdf',
                 as_attachment=True,
-                download_name='summary.pdf'
+                download_name=f'phantomnotes_summary_{timestamp}.pdf'
             )
         
         elif format == 'jpg':
@@ -507,7 +520,7 @@ def export_summary(format):
                 filepath,
                 mimetype='image/jpeg',
                 as_attachment=True,
-                download_name='summary.jpg'
+                download_name=f'phantomnotes_summary_{timestamp}.jpg'
             )
         
         else:
@@ -518,6 +531,6 @@ def export_summary(format):
 
 
 if __name__ == '__main__':
-    print("PhantomNotes is starting...")
-    print("Export cleanup: Files older than 1 hour will be auto-deleted")
+    print("🚀 PhantomNotes is starting...")
+    print("📁 Export cleanup: Files older than 1 hour will be auto-deleted")
     app.run(host='0.0.0.0', port=8000, debug=True)
