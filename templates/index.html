@@ -3,6 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="PhantomNotes - Transform your PDFs and text into intelligent AI-powered summaries. Upload documents or paste text to generate comprehensive, tailored summaries instantly.">
+    <meta name="keywords" content="PDF summarizer, text summarizer, AI summary, document analysis, study notes, research tool">
+    <meta name="author" content="PhantomNotes">
+    <meta property="og:title" content="PhantomNotes - AI Document Summarizer">
+    <meta property="og:description" content="Transform your documents into intelligent summaries with AI">
+    <meta property="og:type" content="website">
     <title>PhantomNotes - AI Document Summarizer</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
@@ -20,6 +26,11 @@
                 <h1>PhantomNotes</h1>
             </div>
             <p class="subtitle">Transform your documents into intelligent summaries</p>
+            <p class="about">
+                <i class="fas fa-info-circle"></i>
+                Upload PDFs or paste text to generate AI-powered summaries tailored to your needs. 
+                Choose from 10+ summary types including student notes, research analysis, business insights, and more.
+            </p>
         </header>
 
         <div class="card">
@@ -119,6 +130,31 @@
         </div>
 
         <div id="resultContainer"></div>
+        
+        <footer class="footer">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4><i class="fas fa-lightbulb"></i> How It Works</h4>
+                    <p>Upload a PDF or paste text, select your summary type, and let our AI analyze your content to generate comprehensive, tailored summaries.</p>
+                </div>
+                <div class="footer-section">
+                    <h4><i class="fas fa-star"></i> Features</h4>
+                    <ul>
+                        <li>10+ specialized summary types</li>
+                        <li>PDF & text input support</li>
+                        <li>Export to multiple formats</li>
+                        <li>Fast AI-powered analysis</li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4><i class="fas fa-shield-alt"></i> Privacy</h4>
+                    <p>Your documents are processed securely and are not stored permanently. Files are automatically deleted after 1 hour.</p>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 PhantomNotes. Powered by AI.</p>
+            </div>
+        </footer>
     </div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>

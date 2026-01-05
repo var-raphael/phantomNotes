@@ -104,6 +104,20 @@ body {
     color: var(--text-secondary);
     font-size: 1.125rem;
     font-weight: 400;
+    margin-bottom: 16px;
+}
+
+.about {
+    color: var(--text-secondary);
+    font-size: 0.9375rem;
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.6;
+}
+
+.about i {
+    color: var(--accent);
+    margin-right: 6px;
 }
 
 .card {
@@ -114,6 +128,8 @@ body {
     margin-bottom: 32px;
     border: 1px solid var(--border);
     animation: slideUp 0.6s ease;
+    width: 100%;
+    max-width: 100%;
 }
 
 /* Input Tabs */
@@ -317,10 +333,15 @@ body {
     text-align: center;
     padding: 48px 20px;
     display: none;
+    margin: 32px 0;
 }
 
-.htmx-request .htmx-indicator {
-    display: block;
+.spinner-container.htmx-indicator {
+    display: block !important;
+}
+
+.htmx-request .spinner-container {
+    display: block !important;
 }
 
 .spinner {
@@ -366,6 +387,8 @@ body {
     margin-bottom: 24px;
     border-left: 4px solid var(--accent);
     transition: all 0.3s;
+    min-width: 100%;
+    overflow-x: hidden;
 }
 
 .summary-box:hover {
@@ -457,6 +480,69 @@ body {
     font-size: 1.5rem;
 }
 
+/* Footer */
+.footer {
+    margin-top: 64px;
+    padding-top: 48px;
+    border-top: 1px solid var(--border);
+}
+
+.footer-content {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 32px;
+    margin-bottom: 32px;
+}
+
+.footer-section h4 {
+    color: var(--text-primary);
+    font-size: 1.125rem;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.footer-section h4 i {
+    color: var(--accent);
+}
+
+.footer-section p {
+    color: var(--text-secondary);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+}
+
+.footer-section ul {
+    list-style: none;
+    color: var(--text-secondary);
+    font-size: 0.9375rem;
+}
+
+.footer-section ul li {
+    padding: 6px 0;
+    display: flex;
+    align-items: center;
+}
+
+.footer-section ul li::before {
+    content: "✓";
+    color: var(--accent);
+    font-weight: bold;
+    margin-right: 8px;
+}
+
+.footer-bottom {
+    text-align: center;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+}
+
+.footer-bottom p {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
 @keyframes fadeIn {
     from {
         opacity: 0;
@@ -534,6 +620,10 @@ body {
         font-size: 1rem;
     }
     
+    .about {
+        font-size: 0.875rem;
+    }
+    
     .input-tabs {
         flex-direction: column;
         gap: 0;
@@ -561,5 +651,10 @@ body {
     .theme-toggle {
         top: 16px;
         right: 16px;
+    }
+    
+    .footer-content {
+        grid-template-columns: 1fr;
+        gap: 24px;
     }
 }
