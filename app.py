@@ -163,7 +163,7 @@ Text to summarize:
                 "temperature": 0.3,
                 "max_tokens": 4000
             },
-            timeout=60  # Add timeout
+            timeout=60
         )
         
         print(f"Groq API response status: {response.status_code}")
@@ -208,7 +208,6 @@ def export_to_txt(summary):
     """Export summary to TXT - In Memory"""
     content = f"PHANTOMNOTES SUMMARY\n{'=' * 50}\n\n{summary['full_text']}"
     
-    # Create in-memory file
     buffer = io.BytesIO()
     buffer.write(content.encode('utf-8'))
     buffer.seek(0)
@@ -220,7 +219,6 @@ def export_to_json(summary):
     """Export summary to JSON - In Memory"""
     content = json.dumps(summary, indent=2, ensure_ascii=False)
     
-    # Create in-memory file
     buffer = io.BytesIO()
     buffer.write(content.encode('utf-8'))
     buffer.seek(0)
@@ -284,7 +282,6 @@ def export_to_html(summary):
     
     html_content = html_template.replace("{{ full_text }}", summary["full_text"])
     
-    # Create in-memory file
     buffer = io.BytesIO()
     buffer.write(html_content.encode('utf-8'))
     buffer.seek(0)
@@ -294,7 +291,6 @@ def export_to_html(summary):
 
 def export_to_pdf(summary):
     """Export summary to PDF - Unique filename with cleanup"""
-    # Generate unique filename
     unique_id = uuid.uuid4().hex[:8]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filepath = EXPORT_DIR / f"summary_{unique_id}_{timestamp}.pdf"
@@ -335,7 +331,6 @@ def export_to_pdf(summary):
 
 def export_to_jpg(summary):
     """Export summary to JPG - Unique filename with cleanup"""
-    # Generate unique filename
     unique_id = uuid.uuid4().hex[:8]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filepath = EXPORT_DIR / f"summary_{unique_id}_{timestamp}.jpg"
@@ -405,7 +400,6 @@ def summarize():
     try:
         print("=== Summarize Request Started ===")
         
-        # Check if GROQ API key is set
         if not GROQ_API_KEY:
             print("ERROR: GROQ_API_KEY not found in environment")
             return jsonify({"error": "API key not configured. Please check .env file"}), 500
@@ -475,7 +469,6 @@ def export_summary(format):
     try:
         summary = request.get_json()
         
-        # Generate timestamp for unique filenames
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         if format == 'txt':
@@ -507,26 +500,49 @@ def export_summary(format):
         
         elif format == 'pdf':
             filepath = export_to_pdf(summary)
-            return send_file(
+            response = send_file(
                 filepath,
                 mimetype='application/pdf',
                 as_attachment=True,
                 download_name=f'phantomnotes_summary_{timestamp}.pdf'
             )
+            
+            @response.call_on_close
+            def cleanup():
+                try:
+                    if filepath.exists():
+                        filepath.unlink()
+                        print(f"Cleaned up: {filepath.name}")
+                except Exception as e:
+                    print(f"Cleanup error: {e}")
+            
+            return response
         
         elif format == 'jpg':
             filepath = export_to_jpg(summary)
-            return send_file(
+            response = send_file(
                 filepath,
                 mimetype='image/jpeg',
                 as_attachment=True,
                 download_name=f'phantomnotes_summary_{timestamp}.jpg'
             )
+            
+            @response.call_on_close
+            def cleanup():
+                try:
+                    if filepath.exists():
+                        filepath.unlink()
+                        print(f"Cleaned up: {filepath.name}")
+                except Exception as e:
+                    print(f"Cleanup error: {e}")
+            
+            return response
         
         else:
             return jsonify({"error": "Invalid export format"}), 400
     
     except Exception as e:
+        print(f"Export error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
