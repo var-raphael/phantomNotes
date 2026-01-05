@@ -2,14 +2,14 @@ import os
 import json
 import io
 import uuid
-import base64
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Thread
 import time
-from flask import Flask, request, render_template, jsonify, send_file, Response
+from flask import Flask, request, render_template, jsonify, make_response
 import PyPDF2
 from PIL import Image, ImageDraw, ImageFont
+import easyocr
 import requests
 from dotenv import load_dotenv
 from reportlab.lib.pagesizes import letter
@@ -29,6 +29,9 @@ EXPORT_DIR.mkdir(exist_ok=True)
 # Get Groq API key
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+# Initialize EasyOCR reader (lazy loading)
+ocr_reader = None
+
 USER_TYPES = {
     "student": "You are summarizing for a student. Provide chapter-by-chapter summaries with key definitions, main concepts, and important points for studying.",
     "novel_reader": "You are summarizing for a novel reader. Focus on plot summary, character analysis, themes, and narrative structure.",
@@ -41,6 +44,16 @@ USER_TYPES = {
     "quick": "Provide an ultra-compressed summary with only the most essential bullet points.",
     "detailed": "Provide an in-depth, detailed analysis that preserves nuance and context."
 }
+
+
+def get_ocr_reader():
+    """Lazy load EasyOCR reader"""
+    global ocr_reader
+    if ocr_reader is None:
+        print("Initializing EasyOCR reader...")
+        ocr_reader = easyocr.Reader(['en'], gpu=False)
+        print("EasyOCR reader initialized")
+    return ocr_reader
 
 
 def cleanup_old_files():
@@ -75,23 +88,25 @@ def extract_text_from_pdf(file_bytes):
             if page_text:
                 text += page_text + "\n\n"
         
-        # If no text found, it's a scanned PDF - use Groq Vision
+        # If no text found, it's a scanned PDF - use EasyOCR
         if not text.strip():
-            print("PDF appears to be scanned - using Groq Vision API for OCR...")
+            print("PDF appears to be scanned - using EasyOCR...")
             try:
                 from pdf2image import convert_from_bytes
-                images = convert_from_bytes(file_bytes, first_page=1, last_page=5)  # Limit to first 5 pages
+                images = convert_from_bytes(file_bytes, first_page=1, last_page=10)  # Limit to first 10 pages
                 
-                print(f"Converting {len(images)} pages with Groq Vision...")
+                reader = get_ocr_reader()
+                print(f"Converting {len(images)} pages with OCR...")
+                
                 for i, image in enumerate(images):
                     print(f"OCR on page {i+1}/{len(images)}...")
+                    # Convert PIL image to numpy array for EasyOCR
+                    import numpy as np
+                    img_array = np.array(image)
                     
-                    # Convert PIL image to base64
-                    img_buffer = io.BytesIO()
-                    image.save(img_buffer, format='PNG')
-                    img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
-                    
-                    page_text = extract_text_from_image_groq(img_base64)
+                    # Extract text
+                    result = reader.readtext(img_array, detail=0, paragraph=True)
+                    page_text = ' '.join(result)
                     text += page_text + "\n\n"
                     
             except ImportError:
@@ -104,69 +119,26 @@ def extract_text_from_pdf(file_bytes):
         raise Exception(f"Error extracting PDF: {str(e)}")
 
 
-def extract_text_from_image_groq(image_base64):
-    """Extract text from image using Groq Vision API"""
+def extract_text_from_image(file_bytes):
+    """Extract text from image using EasyOCR"""
     try:
-        print("Using Groq Vision API for image OCR...")
+        print("Using EasyOCR for image text extraction...")
         
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "llama-3.2-90b-vision-preview",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "Extract all text from this image. Preserve the layout and formatting as much as possible. If there's no text, just say 'No text found'."
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{image_base64}"
-                                }
-                            }
-                        ]
-                    }
-                ],
-                "temperature": 0.1,
-                "max_tokens": 2000
-            },
-            timeout=60
-        )
+        # Convert bytes to PIL Image then to numpy array
+        image = Image.open(io.BytesIO(file_bytes))
+        import numpy as np
+        img_array = np.array(image)
         
-        if response.status_code != 200:
-            error_msg = f"Groq Vision API returned status {response.status_code}"
-            try:
-                error_data = response.json()
-                error_msg += f": {error_data.get('error', {}).get('message', 'Unknown error')}"
-            except:
-                error_msg += f": {response.text[:200]}"
-            raise Exception(error_msg)
+        # Initialize reader and extract text
+        reader = get_ocr_reader()
+        result = reader.readtext(img_array, detail=0, paragraph=True)
+        text = ' '.join(result)
         
-        data = response.json()
+        if not text.strip():
+            return "No text found in image"
         
-        if 'choices' not in data or len(data['choices']) == 0:
-            raise Exception("No response from Groq Vision API")
-        
-        text = data["choices"][0]["message"]["content"]
         return text.strip()
         
-    except Exception as e:
-        raise Exception(f"Error with Groq Vision OCR: {str(e)}")
-
-
-def extract_text_from_image(file_bytes):
-    """Extract text from image using Groq Vision API"""
-    try:
-        # Convert bytes to base64
-        image_base64 = base64.b64encode(file_bytes).decode('utf-8')
-        return extract_text_from_image_groq(image_base64)
     except Exception as e:
         raise Exception(f"Error extracting image text: {str(e)}")
 
@@ -253,19 +225,13 @@ Text to summarize:
 def export_to_txt(summary):
     """Export summary to TXT"""
     content = f"PHANTOMNOTES SUMMARY\n{'=' * 50}\n\n{summary['full_text']}"
-    buffer = io.BytesIO()
-    buffer.write(content.encode('utf-8'))
-    buffer.seek(0)
-    return buffer
+    return content.encode('utf-8')
 
 
 def export_to_json(summary):
     """Export summary to JSON"""
     content = json.dumps(summary, indent=2, ensure_ascii=False)
-    buffer = io.BytesIO()
-    buffer.write(content.encode('utf-8'))
-    buffer.seek(0)
-    return buffer
+    return content.encode('utf-8')
 
 
 def export_to_html(summary):
@@ -317,10 +283,7 @@ def export_to_html(summary):
 </html>"""
     
     html_content = html_template.replace("{{ full_text }}", summary["full_text"])
-    buffer = io.BytesIO()
-    buffer.write(html_content.encode('utf-8'))
-    buffer.seek(0)
-    return buffer
+    return html_content.encode('utf-8')
 
 
 def export_to_pdf(summary):
@@ -359,7 +322,16 @@ def export_to_pdf(summary):
                 story.append(Spacer(1, 0.1*inch))
     
     doc.build(story)
-    return filepath
+    
+    with open(filepath, 'rb') as f:
+        pdf_data = f.read()
+    
+    try:
+        filepath.unlink()
+    except:
+        pass
+    
+    return pdf_data
 
 
 def export_to_jpg(summary):
@@ -413,7 +385,16 @@ def export_to_jpg(summary):
     
     draw.text((40, img_height - 60), "Generated by PhantomNotes", fill='#7f8c8d', font=body_font)
     img.save(str(filepath), 'JPEG', quality=95)
-    return filepath
+    
+    with open(filepath, 'rb') as f:
+        jpg_data = f.read()
+    
+    try:
+        filepath.unlink()
+    except:
+        pass
+    
+    return jpg_data
 
 
 @app.route('/')
@@ -493,70 +474,43 @@ def export_summary(format):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         if format == 'txt':
-            buffer = export_to_txt(summary)
+            data = export_to_txt(summary)
             filename = f'phantomnotes_summary_{timestamp}.txt'
-            
-            response = Response(buffer.getvalue())
-            response.headers['Content-Type'] = 'text/plain'
-            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
-            return response
+            mimetype = 'text/plain'
         
         elif format == 'json':
-            buffer = export_to_json(summary)
+            data = export_to_json(summary)
             filename = f'phantomnotes_summary_{timestamp}.json'
-            
-            response = Response(buffer.getvalue())
-            response.headers['Content-Type'] = 'application/json'
-            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
-            return response
+            mimetype = 'application/json'
         
         elif format == 'html':
-            buffer = export_to_html(summary)
+            data = export_to_html(summary)
             filename = f'phantomnotes_summary_{timestamp}.html'
-            
-            response = Response(buffer.getvalue())
-            response.headers['Content-Type'] = 'text/html'
-            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
-            return response
+            mimetype = 'text/html'
         
         elif format == 'pdf':
-            filepath = export_to_pdf(summary)
+            data = export_to_pdf(summary)
             filename = f'phantomnotes_summary_{timestamp}.pdf'
-            
-            with open(filepath, 'rb') as f:
-                pdf_data = f.read()
-            
-            # Delete file immediately
-            try:
-                filepath.unlink()
-            except:
-                pass
-            
-            response = Response(pdf_data)
-            response.headers['Content-Type'] = 'application/pdf'
-            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
-            return response
+            mimetype = 'application/pdf'
         
         elif format == 'jpg':
-            filepath = export_to_jpg(summary)
+            data = export_to_jpg(summary)
             filename = f'phantomnotes_summary_{timestamp}.jpg'
-            
-            with open(filepath, 'rb') as f:
-                jpg_data = f.read()
-            
-            # Delete file immediately
-            try:
-                filepath.unlink()
-            except:
-                pass
-            
-            response = Response(jpg_data)
-            response.headers['Content-Type'] = 'image/jpeg'
-            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
-            return response
+            mimetype = 'image/jpeg'
         
         else:
             return jsonify({"error": "Invalid export format"}), 400
+        
+        # Create response with proper headers
+        response = make_response(data)
+        response.headers['Content-Type'] = mimetype
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        print(f"Exporting as {filename}")
+        return response
     
     except Exception as e:
         print(f"Export error: {str(e)}")

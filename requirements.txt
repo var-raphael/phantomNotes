@@ -3,6 +3,10 @@ gunicorn
 requests
 PyPDF2
 Pillow
+easyocr
 pdf2image
 reportlab
 python-dotenv
+numpy
+torch
+torchvision
