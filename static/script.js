@@ -10,22 +10,16 @@ const tabContents = document.querySelectorAll('.tab-content');
 let currentSummary = null;
 
 // Theme management
-const savedTheme = localStorage.getItem('theme') || 'dark';
+const savedTheme = localStorage.getItem('theme') || 'light';
 html.setAttribute('data-theme', savedTheme);
 updateThemeIcon(savedTheme);
 
 themeToggle.addEventListener('click', () => {
     const current = html.getAttribute('data-theme');
     const newTheme = current === 'light' ? 'dark' : 'light';
-    
     html.setAttribute('data-theme', newTheme);
     localStorage.setItem('theme', newTheme);
     updateThemeIcon(newTheme);
-    
-    themeToggle.style.transform = 'rotate(360deg)';
-    setTimeout(() => {
-        themeToggle.style.transform = '';
-    }, 300);
 });
 
 function updateThemeIcon(theme) {
@@ -37,14 +31,13 @@ function updateThemeIcon(theme) {
 tabBtns.forEach(btn => {
     btn.addEventListener('click', () => {
         const tabName = btn.getAttribute('data-tab');
-        
+
         tabBtns.forEach(b => b.classList.remove('active'));
         tabContents.forEach(c => c.classList.remove('active'));
-        
+
         btn.classList.add('active');
         document.getElementById(`${tabName}-tab`).classList.add('active');
-        
-        // Clear inputs when switching tabs
+
         if (tabName === 'pdf') {
             textInput.value = '';
             updateCharCount();
@@ -71,33 +64,30 @@ function resetFileDisplay() {
     fileNameDisplay.style.color = '';
 }
 
-// Text input character counter
+// Character counter
 textInput.addEventListener('input', updateCharCount);
 
 function updateCharCount() {
-    const count = textInput.value.length;
-    charCount.textContent = count.toLocaleString();
+    charCount.textContent = textInput.value.length.toLocaleString();
 }
 
-// Form validation before submit
+// Form validation
 document.getElementById('uploadForm').addEventListener('submit', (e) => {
     const activeTab = document.querySelector('.tab-btn.active').getAttribute('data-tab');
-    
+
     if (activeTab === 'pdf') {
         if (!fileInput.files.length) {
             e.preventDefault();
-            showError('Please upload a PDF file');
+            showError('Please upload a PDF file.');
             return false;
         }
-        // Clear text input to avoid sending both
         textInput.value = '';
     } else {
         if (!textInput.value.trim()) {
             e.preventDefault();
-            showError('Please enter some text to summarize');
+            showError('Please enter some text to summarize.');
             return false;
         }
-        // Clear file input to avoid sending both
         fileInput.value = '';
     }
 });
@@ -107,16 +97,14 @@ document.body.addEventListener('htmx:afterRequest', (event) => {
     if (event.detail.xhr.status === 200) {
         try {
             const response = JSON.parse(event.detail.xhr.responseText);
-            
             if (response.error) {
                 showError(response.error);
                 return;
             }
-            
             currentSummary = response;
             showResults(response);
         } catch (error) {
-            showError('Failed to parse response');
+            showError('Failed to parse response.');
         }
     } else {
         showError('Request failed. Please try again.');
@@ -126,7 +114,7 @@ document.body.addEventListener('htmx:afterRequest', (event) => {
 document.body.addEventListener('htmx:responseError', (event) => {
     try {
         const response = JSON.parse(event.detail.xhr.responseText);
-        showError(response.error || 'An error occurred');
+        showError(response.error || 'An error occurred.');
     } catch {
         showError('Network error. Check your connection.');
     }
@@ -134,101 +122,89 @@ document.body.addEventListener('htmx:responseError', (event) => {
 
 function showResults(data) {
     const container = document.getElementById('resultContainer');
-    
+
     container.innerHTML = `
         <div class="card summary-results">
-            <div class="summary-box">
-                <h3>
-                    <i class="fas fa-book-open"></i>
-                    Chapter Summaries
-                </h3>
-                <div class="summary-content">${escapeHtml(data.chapter_summaries)}</div>
-            </div>
-            
-            <div class="summary-box">
-                <h3>
-                    <i class="fas fa-compress-alt"></i>
-                    Overall Summary
-                </h3>
-                <div class="summary-content">${escapeHtml(data.overall_summary)}</div>
-            </div>
-            
-            <div class="export-section">
-                <h3>
-                    <i class="fas fa-download"></i>
-                    Export Options
-                </h3>
-                <div class="export-buttons">
-                    <button class="export-btn" onclick="downloadFile('txt')">
-                        <i class="fas fa-file-alt"></i>
-                        TXT
-                    </button>
-                    <button class="export-btn" onclick="downloadFile('json')">
-                        <i class="fas fa-file-code"></i>
-                        JSON
-                    </button>
-                    <button class="export-btn" onclick="downloadFile('html')">
-                        <i class="fas fa-globe"></i>
-                        HTML
-                    </button>
-                    <button class="export-btn" onclick="downloadFile('pdf')">
-                        <i class="fas fa-file-pdf"></i>
-                        PDF
-                    </button>
-                    <button class="export-btn" onclick="downloadFile('jpg')">
-                        <i class="fas fa-image"></i>
-                        JPG
-                    </button>
+            <div class="summary-results-inner">
+                <div class="summary-box">
+                    <p class="result-label">Chapter Summaries</p>
+                    <h3><i class="fas fa-book-open"></i> Chapter by Chapter</h3>
+                    <div class="summary-content">${escapeHtml(data.chapter_summaries)}</div>
+                </div>
+
+                <div class="summary-box">
+                    <p class="result-label">Overall Summary</p>
+                    <h3><i class="fas fa-align-left"></i> Full Overview</h3>
+                    <div class="summary-content">${escapeHtml(data.overall_summary)}</div>
+                </div>
+
+                <div class="export-section">
+                    <h3><i class="fas fa-download"></i> Export</h3>
+                    <div class="export-buttons">
+                        <button class="export-btn" onclick="downloadFile('txt')">
+                            <i class="fas fa-file-lines"></i> TXT
+                        </button>
+                        <button class="export-btn" onclick="downloadFile('json')">
+                            <i class="fas fa-code"></i> JSON
+                        </button>
+                        <button class="export-btn" onclick="downloadFile('html')">
+                            <i class="fas fa-globe"></i> HTML
+                        </button>
+                        <button class="export-btn" onclick="downloadFile('pdf')">
+                            <i class="fas fa-file-pdf"></i> PDF
+                        </button>
+                        <button class="export-btn" onclick="downloadFile('jpg')">
+                            <i class="fas fa-image"></i> JPG
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
     `;
-    
+
     container.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function showError(message) {
     const container = document.getElementById('resultContainer');
-    
+
     container.innerHTML = `
         <div class="card">
-            <div class="error-message">
-                <i class="fas fa-exclamation-triangle"></i>
-                <div>
-                    <strong>Error:</strong> ${escapeHtml(message)}
+            <div style="padding: 28px 32px;">
+                <div class="error-message">
+                    <i class="fas fa-circle-exclamation"></i>
+                    <div><strong>Error:</strong> ${escapeHtml(message)}</div>
                 </div>
             </div>
         </div>
     `;
-    
+
     container.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function downloadFile(format) {
     if (!currentSummary) {
-        showError('No summary available');
+        showError('No summary available.');
         return;
     }
-    
+
     const btn = event.target.closest('.export-btn');
     const originalContent = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     btn.disabled = true;
-    
+
     try {
         const response = await fetch(`/export/${format}`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(currentSummary)
         });
-        
+
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.error || 'Export failed');
         }
-        
+
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -238,13 +214,13 @@ async function downloadFile(format) {
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
-        
-        btn.innerHTML = '<i class="fas fa-check"></i> Done!';
+
+        btn.innerHTML = '<i class="fas fa-check"></i> Done';
         setTimeout(() => {
             btn.innerHTML = originalContent;
             btn.disabled = false;
         }, 2000);
-        
+
     } catch (error) {
         showError(`Export failed: ${error.message}`);
         btn.innerHTML = originalContent;
@@ -271,7 +247,7 @@ const fileDisplay = document.querySelector('.file-upload-display');
 ['dragenter', 'dragover'].forEach(evt => {
     fileDisplay.addEventListener(evt, () => {
         fileDisplay.style.borderColor = 'var(--accent)';
-        fileDisplay.style.background = 'var(--bg-card)';
+        fileDisplay.style.background = 'var(--accent-light)';
     });
 });
 

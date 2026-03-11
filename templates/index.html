@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="PhantomNotes - Transform your PDFs and text into intelligent AI-powered summaries. Upload documents or paste text to generate comprehensive, tailored summaries instantly.">
+    <meta name="description" content="PhantomNotes - Transform your PDFs and text into intelligent AI-powered summaries.">
     <meta name="keywords" content="PDF summarizer, text summarizer, AI summary, document analysis, study notes, research tool">
     <meta name="author" content="PhantomNotes">
     <meta property="og:title" content="PhantomNotes - AI Document Summarizer">
     <meta property="og:description" content="Transform your documents into intelligent summaries with AI">
     <meta property="og:type" content="website">
-    <title>PhantomNotes - AI Document Summarizer</title>
+    <title>PhantomNotes — AI Document Summarizer</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://phantomtrack-cdn.vercel.app/phantom.v1.0.0.js?trackid=track_51z4behncm7670ulkfoae7"></script>
@@ -26,21 +26,21 @@
                 <i class="fas fa-ghost"></i>
                 <h1>PhantomNotes</h1>
             </div>
+            <hr class="header-rule">
             <p class="subtitle">Transform your documents into intelligent summaries</p>
             <p class="about">
-                <i class="fas fa-info-circle"></i>
-                Upload PDFs or paste text to generate AI-powered summaries tailored to your needs. 
+                Upload PDFs or paste text to generate AI-powered summaries tailored to your needs.
                 Choose from 10+ summary types including student notes, research analysis, business insights, and more.
             </p>
         </header>
 
         <div class="card">
-            <form id="uploadForm" 
-                  hx-post="/summarize" 
+            <form id="uploadForm"
+                  hx-post="/summarize"
                   hx-encoding="multipart/form-data"
                   hx-target="#resultContainer"
                   hx-indicator="#spinner">
-                
+
                 <!-- Input Method Tabs -->
                 <div class="input-tabs">
                     <button type="button" class="tab-btn active" data-tab="pdf">
@@ -56,21 +56,18 @@
                 <!-- PDF Upload Tab -->
                 <div class="tab-content active" id="pdf-tab">
                     <div class="form-group">
-                        <label for="file">
-                            <i class="fas fa-file-pdf"></i> 
-                            Upload PDF Document
-                        </label>
+                        <label for="file">Upload PDF Document</label>
                         <div class="file-upload-wrapper">
-                            <input 
-                                type="file" 
-                                id="file" 
-                                name="file" 
-                                accept=".pdf" 
+                            <input
+                                type="file"
+                                id="file"
+                                name="file"
+                                accept=".pdf"
                                 class="file-input">
                             <div class="file-upload-display">
-                                <i class="fas fa-cloud-upload-alt"></i>
+                                <i class="fas fa-arrow-up-from-bracket"></i>
                                 <span id="fileName">Drop your PDF here or click to browse</span>
-                                <small>Maximum file size: 50MB</small>
+                                <small>Maximum file size: 50 MB · PDF only</small>
                             </div>
                         </div>
                     </div>
@@ -79,44 +76,38 @@
                 <!-- Text Input Tab -->
                 <div class="tab-content" id="text-tab">
                     <div class="form-group">
-                        <label for="textInput">
-                            <i class="fas fa-align-left"></i> 
-                            Paste Your Text
-                        </label>
-                        <textarea 
-                            id="textInput" 
-                            name="text_input" 
+                        <label for="textInput">Paste Your Text</label>
+                        <textarea
+                            id="textInput"
+                            name="text_input"
                             class="text-input"
-                            placeholder="Paste your text here... (articles, documents, notes, etc.)"
-                            rows="12"></textarea>
+                            placeholder="Paste your text here — articles, documents, notes, research papers…"
+                            rows="10"></textarea>
                         <small class="char-counter">
                             <span id="charCount">0</span> characters
                         </small>
                     </div>
                 </div>
 
-                <!-- Summary Type Selection -->
+                <!-- Summary Type -->
                 <div class="form-group">
-                    <label for="userType">
-                        <i class="fas fa-user-tag"></i> 
-                        Summary Type
-                    </label>
+                    <label for="userType">Summary Type</label>
                     <select id="userType" name="user_type" required class="select-input">
-                        <option value="student">Student - Study Notes</option>
-                        <option value="novel_reader">Novel Reader - Plot & Characters</option>
-                        <option value="researcher">Researcher - Methodology & Findings</option>
-                        <option value="professional">Business - Action Items & Decisions</option>
-                        <option value="legal">Legal - Clauses & Terms</option>
-                        <option value="technical">Technical - Architecture & APIs</option>
-                        <option value="news">News - 5W1H Summary</option>
-                        <option value="meeting">Meeting Notes - Decisions & Actions</option>
+                        <option value="student">Student — Study Notes</option>
+                        <option value="novel_reader">Novel Reader — Plot &amp; Characters</option>
+                        <option value="researcher">Researcher — Methodology &amp; Findings</option>
+                        <option value="professional">Business — Action Items &amp; Decisions</option>
+                        <option value="legal">Legal — Clauses &amp; Terms</option>
+                        <option value="technical">Technical — Architecture &amp; APIs</option>
+                        <option value="news">News — 5W1H Summary</option>
+                        <option value="meeting">Meeting Notes — Decisions &amp; Actions</option>
                         <option value="quick">Quick Overview</option>
                         <option value="detailed">Detailed Analysis</option>
                     </select>
                 </div>
 
                 <button type="submit" class="btn btn-primary">
-                    <i class="fas fa-magic"></i>
+                    <i class="fas fa-wand-magic-sparkles"></i>
                     Generate Summary
                 </button>
 
@@ -125,35 +116,36 @@
                         <div class="spinner-ring"></div>
                         <i class="fas fa-ghost"></i>
                     </div>
-                    <p class="loading-text">Analyzing your document...</p>
+                    <p class="loading-text">Analyzing your document…</p>
                 </div>
             </form>
         </div>
 
         <div id="resultContainer"></div>
-        
+
         <footer class="footer">
             <div class="footer-content">
                 <div class="footer-section">
                     <h4><i class="fas fa-lightbulb"></i> How It Works</h4>
-                    <p>Upload a PDF or paste text, select your summary type, and let our AI analyze your content to generate comprehensive, tailored summaries.</p>
+                    <p>Upload a PDF or paste text, select your summary type, and let our AI generate a comprehensive, tailored summary.</p>
                 </div>
                 <div class="footer-section">
                     <h4><i class="fas fa-star"></i> Features</h4>
                     <ul>
                         <li>10+ specialized summary types</li>
-                        <li>PDF & text input support</li>
+                        <li>PDF &amp; text input support</li>
                         <li>Export to multiple formats</li>
                         <li>Fast AI-powered analysis</li>
                     </ul>
                 </div>
                 <div class="footer-section">
                     <h4><i class="fas fa-shield-alt"></i> Privacy</h4>
-                    <p>Your documents are processed securely and are not stored permanently. Files are automatically deleted after 1 hour.</p>
+                    <p>Your documents are processed securely and are never stored permanently. Files are deleted automatically after 1 hour.</p>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2025 PhantomNotes. Powered by AI.</p>
+                <p>&copy; 2025 PhantomNotes</p>
+                <p>Powered by AI</p>
             </div>
         </footer>
     </div>
