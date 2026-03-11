@@ -92,6 +92,7 @@
                 <!-- Summary Type -->
                 <div class="form-group">
                     <label for="userType">Summary Type</label>
+                    <div class="select-wrapper">
                     <select id="userType" name="user_type" required class="select-input">
                         <option value="student">Student — Study Notes</option>
                         <option value="novel_reader">Novel Reader — Plot &amp; Characters</option>
@@ -104,6 +105,7 @@
                         <option value="quick">Quick Overview</option>
                         <option value="detailed">Detailed Analysis</option>
                     </select>
+                    </div>
                 </div>
 
                 <button type="submit" class="btn btn-primary">
@@ -153,3 +155,4 @@
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
+
